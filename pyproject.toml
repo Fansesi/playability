@@ -1,0 +1,58 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "playability"
+version = "1.0.0"
+description = "Playability of string instruments."
+readme = {file = "README.md", content-type = "text/markdown"}
+license = {file = "LICENSE"}
+requires-python = ">=3.11"
+authors = [
+    { name = "Burak Sina Akbudak" },
+]
+keywords = [
+    "midi",
+    "music",
+    "mir",
+]
+classifiers = [
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "Topic :: Multimedia :: Sound/Audio :: MIDI",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Operating System :: OS Independent",
+]
+dependencies = [
+    "pretty_midi",
+    "matplotlib",
+    "loguru"
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/playability"]
+only-packages = true
+
+[tool.hatch.version]
+path = "src/playability/__init__.py"
+
+[tool.pytest.ini_options]
+pythonpath = "src/playability"
+addopts = [
+    "--import-mode=importlib",
+]
+
+[tool.coverage.report]
+exclude_also = [
+    "def __repr__",
+]
+omit = [
+    # files to omit to check
+    # "output/*"
+]
