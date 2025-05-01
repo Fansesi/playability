@@ -9,11 +9,10 @@ from typing import List, Dict, Optional, Union
 from pathlib import Path
 import numpy as np
 
-from .constants import ERROR_TYPES, THRESHOLDS
 from .base import BaseInstrumentPlayer
 from .utils import create_finger_positions
 from .vis import SongVisualizer
-from .config import ErrorDist, Thresholds, GuitarParams
+from .config import GuitarParams
 
 
 class GuitarPlayer(BaseInstrumentPlayer):
@@ -43,7 +42,6 @@ class GuitarPlayer(BaseInstrumentPlayer):
         thresholds: Optional[Dict[str, int]] = None,
         guitar_parameters: Optional[GuitarParams] = None,
     ) -> None:
-
         if not guitar_parameters:
             self.guitar_parameters = GuitarParams()
         else:
@@ -58,7 +56,7 @@ class GuitarPlayer(BaseInstrumentPlayer):
             ),
             error_distribution,
             thresholds,
-            [self._edge_case_1],
+            [],  # self._edge_case_1
         )
 
         self.post_init()
@@ -70,7 +68,7 @@ class GuitarPlayer(BaseInstrumentPlayer):
     def visualize_guitar(self):
         """Visualizes the classical guitar fretboard."""
         visualizer = SongVisualizer(
-            num_finger_positions=self.guitar_parameters["number_of_frets"],
+            num_finger_positions=self.guitar_parameters.number_of_frets,
             num_strings=self.number_of_strings,
             hand_position=self.hand_position,
             time_note_locations=self.time_note_locations,
@@ -99,6 +97,7 @@ class GuitarPlayer(BaseInstrumentPlayer):
 
         _fret_locs = self._create_fret_locations()
         _fret_locs = list(map(lambda x: x / 10, _fret_locs))
+        _fret_locs.insert(0, 0.0)
         ax.vlines(x=_fret_locs, ymin=0, ymax=len(num_strings) - 1, color="black")
         ax.hlines(
             y=num_strings,
@@ -122,13 +121,13 @@ class GuitarPlayer(BaseInstrumentPlayer):
         """
 
         scale_length = (
-            self.guitar_parameters["scale_length"]
-            if scale_length == None
+            self.guitar_parameters.scale_length
+            if scale_length is None
             else scale_length
         )
         number_of_frets = (
-            self.guitar_parameters["number_of_frets"]
-            if number_of_frets == None
+            self.guitar_parameters.number_of_frets
+            if number_of_frets is None
             else number_of_frets
         )
 

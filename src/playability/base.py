@@ -4,8 +4,8 @@ from pathlib import Path, PosixPath
 import numpy as np
 from loguru import logger as lg
 
-from .constants import ERROR_TYPES, THRESHOLDS
-from .utils import create_finger_positions
+# from .constants import ERROR_TYPES, THRESHOLDS
+# from .utils import create_finger_positions
 from .config import ErrorDist, Thresholds
 
 
@@ -33,7 +33,6 @@ class BaseInstrumentPlayer:
         thresholds: Optional[Thresholds] = None,
         edge_handlers: Optional[List[Callable]] = None,
     ) -> None:
-
         if not error_distribution:
             self.error_distribution = ErrorDist.for_guitar()
         else:
@@ -53,7 +52,7 @@ class BaseInstrumentPlayer:
         # These edge handlers should return the cleaned data.
         self.edge_handlers = edge_handlers
 
-        self.number_of_strings: int = len(
+        self.number_of_strings = len(
             self.finger_positions[list(self.finger_positions.keys())[0]]
         )
 
@@ -81,6 +80,9 @@ class BaseInstrumentPlayer:
         # Hand position for each time step.
         # It's calculated as the average of the furthest notes.
         self.hand_position: List[float] = [-1.0]
+
+        # Which time intervals has problems.
+        self._problematic_times: List[Tuple[float, float]] = []
 
         # Find the most optimal fingerings on finger_positions.
         self.time_note_locations: Dict[Tuple[float, float], List[List[int]]] = (
@@ -111,10 +113,23 @@ class BaseInstrumentPlayer:
         self._post_process_hand_positions()
         self._calculate_hand_velocity()
         self._calculate_hand_speed_error()
-        self._calculate_max_number_of_notes()
 
         self._calculate_error_types_rates()
         self.calculate_final_playabilty()
+
+        self._post_process_time_note_locations()
+
+    def _post_process_time_note_locations(self):
+        """Makes the empty location data same as the previous start_end_time."""
+
+        # a bit ugly, but does the job
+        tnl_k = list(self.time_note_locations.keys())
+        tnl_v = list(self.time_note_locations.values())
+
+        for problem_start_end_times in self._problematic_times:
+            self.time_note_locations[problem_start_end_times] = tnl_v[
+                tnl_k.index(problem_start_end_times) - 1
+            ]
 
     def create_optimal_note_locations(self):
         """
@@ -130,19 +145,32 @@ class BaseInstrumentPlayer:
                 self.update_hand_pos(pos=[], is_rest=True)
                 continue
 
+            if len(pitch_values) > self.number_of_strings:
+                pitch_values = pitch_values[: self.number_of_strings]
+                self.update_error(
+                    "max_number_of_notes",
+                    [
+                        len(pitch_values) - self.number_of_strings,
+                        start_end_times[1] - start_end_times[0],
+                    ],
+                )
+
             merged_lists = self._create_possible_places(pitch_values)
 
+            # Further error handling with external edge_handlers
             if merged_lists == []:
-                if self.edge_handlers != None:
+                if self.edge_handlers is not None:
                     for func in self.edge_handlers:
                         merged_lists = func(pitch_values)
                 else:
                     lg.warning("You should probably create some edge handlers.")
 
-            # If merged_lists still empty after these, just remove them by using np.unique
-            # if merged_lists == []:
-            #     notes = np.unique(notes)
-            #     merged_lists = self._create_possible_places(notes)
+            if merged_lists == []:
+                self._problematic_times.append(start_end_times)
+                self.update_error(
+                    "impossible_to_play", [1, start_end_times[1] - start_end_times[0]]
+                )
+                self.update_hand_pos([], True)
 
             time_bestlocs_dict[start_end_times] = self.L2(merged_lists)
 
@@ -155,10 +183,7 @@ class BaseInstrumentPlayer:
         Only the number a.t.m.
         """
         if pos == []:
-            # TODO: try to catch every edge case.
-            lg.error("Well, pos=[] again...")
-            self.update_error("impossible_to_play", [1, 0.0])
-            self.update_hand_pos([], True)
+            # lg.error("pos=[]")
             return []
 
         if len(pos) == 1:
@@ -234,11 +259,13 @@ class BaseInstrumentPlayer:
         return pos[min_hand_index]
 
     def update_hand_pos(self, pos: List[int], is_rest: bool = False):
-        """Updates the hand position. Averages the positions of the notes played on the guitar.
-        If is_rest=True, appends the last element of the self.hand_position. This parameter can be used
-        by open strings first approach as well (we don't change hand position while playing only open strings.)
+        """Updates the hand position. Averages the positions of the notes played
+        on the guitar. If is_rest=True, appends the last element of the
+        self.hand_position. This parameter can be used by open strings first
+        approach as well (we don't change hand position while playing only open
+        strings.)
         """
-        if is_rest == True:  # This means we are at rest
+        if is_rest:  # This means we are at rest
             self.hand_position.append(
                 self.hand_position[-1]
             )  # Our hand position stays the same at this time_step
@@ -255,24 +282,24 @@ class BaseInstrumentPlayer:
                 self.hand_position.append((nonzero_min + max(elements)) / 2)
 
     def _create_possible_places(self, notes: List[int]):
-        container_list: List[List[List[int]]] = []
+        container: List[List[List[int]]] = []
 
         for pitch in notes:
-            container_list.append(
-                self._create_note_on_string(self.finger_positions[pitch])
-            )
-        return self._merge_lists(container_list)[0]
+            container.append(self._create_note_on_string(self.finger_positions[pitch]))
+
+        return self._merge_lists(container)[0]
 
     def _create_note_on_string(self, pitch_repr: List[int]) -> List[List[int]]:
         """Processes the data on self.guitar_strings to create the notes on single string.
-        E.g. [-1, -1, 21, 16,TO 12, 7] => [[-1,-1,-1,21,-1,-1],[-1,-1,-1,-1,16,-1], ...]
+        E.g. [-1, -1, 21, 16, 12, 7] => [[-1,-1,-1,21,-1,-1],[-1,-1,-1,-1,16,-1], ...]
         ## Params
         * pitch_repr pitch representation on the guitar just like stated above.
 
         ## Returns
         List[List[], List[], ...]
         """
-        base_repr = [-1, -1, -1, -1, -1, -1]
+        base_repr = [-1] * self.number_of_strings
+        # base_repr = [-1, -1, -1, -1, -1, -1]
         final_list = []
 
         indices, elements = self._valid_idxs_elems(pitch_repr)
@@ -286,18 +313,17 @@ class BaseInstrumentPlayer:
         return final_list
 
     def _merge_lists(self, list_of_lists: List[List[List[int]]]):
-        """With the help of merge_two_lists() method, this method merges multiple lists. list_of_lists param may include more than two lists
-        which each inner lists indicates the single notes' places and the outer list indicates this process for all notes.
-        I'm checking the problem of being in the same string in this method rather than in the merge_two_lists().
+        """With the help of merge_two_lists() method, this method merges
+        multiple lists. list_of_lists param may include more than two lists
+        which each inner lists indicates the single notes' places and the outer
+        list indicates this process for all notes.
+
+        I'm checking the problem of being in the same string in this method
+        rather than in the merge_two_lists().
         Also we need to look at the situation where there is only 1 note.
         """
 
-        # list_of_lists shouldn't be 1. That case should be handled in iterate_notes()
-        # lg.debug(list_of_lists)
-        # assert len(list_of_lists) != 1
-
         list_of_lists2 = list_of_lists.copy()
-        # lg.info(f"Length of the list_of_lists: {len(list_of_lists2)}")
 
         while len(list_of_lists2) >= 2:
             list1: List[List[int]] = list_of_lists2[0]
@@ -309,33 +335,38 @@ class BaseInstrumentPlayer:
                 for elem2 in list2:
                     ind2, elements2 = self._valid_idxs_elems(elem2)
                     if self._check_occurence(ind1, ind2):
-                        # if there are occurence between two index lists this means
-                        # they are on the same string. So continue the loop without adding them the main merged_list.
+                        # if there are occurrence between two index lists this
+                        # means they are on the same string. So continue the
+                        # loop without adding them the main merged_list.
                         continue
                     else:
                         list_merged.append(self._merge_two_lists([elem1, elem2]))
 
-            # remove the first and second list to add their merged one.
+            # remove the first and second list and add the merged one.
             list_of_lists2 = list_of_lists2[2:]
             list_of_lists2.insert(0, list_merged)
 
-        # np is totally cool with this edge case though.
-        return np.unique(list_of_lists2, axis=-2).tolist()
+        return list_of_lists2
+        # return np.unique(list_of_lists2, axis=-2).tolist()
 
     def _merge_two_lists(self, list_of_lists: List[List[int]]):
-        """Merges two lists like [-1, -1, -1, -1, 12, -1, -1], [-1, -1, -1, -1, 7, -1] => [-1, -1, -1, -1, 12, 7, -1]
+        """Merges two lists like
+        [-1, -1, -1, -1, 12, -1, -1], [-1, -1, -1, -1, 7, -1] => [-1, -1, -1, -1, 12, 7, -1]
         We are not considering the intersection here.
-        Note: I'm going to merge the two then create one then merge another one with the created one and so on. With this approach
-        I'll iterate all the possibilities while obeying the rules of not playing two notes at the same time on a single string.
+        Note: I'm going to merge the two then create one then merge another one
+        with the created one and so on. With this approach I'll iterate all the
+        possibilities while obeying the rules of not playing two notes at the
+        same time on a single string.
         """
 
         if len(list_of_lists) != 2:
             lg.critical(
-                "Number of lists to merge should be 2. Please provide List[List[int], List[int]] as list_of_lists parameter."
+                "Number of lists to merge should be 2. "
+                "Please provide List[List[int], List[int]] as list_of_lists parameter."
             )
-            raise Exception
+            raise UserWarning()
 
-        base_repr = [-1, -1, -1, -1, -1, -1]
+        base_repr = [-1] * self.number_of_strings
         ind1, elem1 = self._valid_idxs_elems(list_of_lists[0])
         ind2, elem2 = self._valid_idxs_elems(list_of_lists[1])
 
@@ -465,9 +496,7 @@ class BaseInstrumentPlayer:
         velocity doesn't fluctuate much.
         """
         velocities = []
-
         # If self.hand_position is not calculated yet, only create the hand_velocity variable.
-
         for i in range(1, len(self.hand_position) - 1):
             # I hate to access these like this but it's the way to go.
             duration_between_pos = (
@@ -572,21 +601,6 @@ class BaseInstrumentPlayer:
                 if is_tranposed:
                     self.update_error("max_min_pitch", [1, end_time - start_time])
                     self.times_pitches[(start_time, end_time)][pitch_pos] = new_pitch
-
-    def _calculate_max_number_of_notes(self):
-        """Calculates the error of maximum number of notes in a time step.
-        Uses `self.times_pitches`. Updates the `max_number_of_notes` accordingly.
-        """
-
-        for start_end_times, pitch_values in self.times_pitches.items():
-            if len(pitch_values) > self.number_of_strings:
-                self.update_error(
-                    "max_number_of_notes",
-                    [
-                        len(pitch_values) - self.number_of_strings,
-                        start_end_times[1] - start_end_times[0],
-                    ],
-                )
 
     def _remove_duplicate_notes(self):
         """Removes the duplicates notes. Uses `self.times_pitches`."""

@@ -46,7 +46,7 @@ class SongVisualizer:
         self.num_finger_positions = num_finger_positions
         self.num_strings = num_strings
         self.grid_function = (
-            grid_function if grid_function != None else self._create_grid
+            grid_function if grid_function is not None else self._create_grid
         )
 
         self.np_num_finger_positions = np.arange(self.num_finger_positions)
@@ -69,7 +69,6 @@ class SongVisualizer:
         * `self.time_note_locations`
         """
 
-        # Creating the graph with inital data.
         note_positions_line = self.ax.plot(
             [],  # initially empty
             "bo",
@@ -99,8 +98,8 @@ class SongVisualizer:
 
         def _update(val):
             int_val = math.floor(val)
-
             current_fret_pos = list(self.time_note_locations.values())[int_val]
+
             if current_fret_pos != []:
                 note_positions_line[0].set_data(
                     self._arange_fret_positions(current_fret_pos)
@@ -109,6 +108,7 @@ class SongVisualizer:
                 lg.warning(
                     f"Note positions of time_step {int_val} is empty. Please fix this."
                 )
+
             hand_positions_line[0].set_data(
                 self._arange_hand_position(int_val + 1, self.np_num_strings)
             )
@@ -143,7 +143,6 @@ class SongVisualizer:
             self.__stop_data = False
 
         def _onkey(event):
-            lg.debug(event)
             if event.key == "right":
                 time_step_slider.set_val(time_step_slider.val + 1)
             if event.key == "left":
@@ -156,18 +155,31 @@ class SongVisualizer:
         auto_button.on_clicked(_auto_scroll)
         self.fig.canvas.mpl_connect("key_press_event", _onkey)
 
+        self.fig.set_size_inches(15, 7.5)
         plt.show()
 
     def _arange_hand_position(self, index: int, num_strings: List[int]):
         """Given an index returns the hand_position of that index."""
+        # lg.debug(self.hand_position[index])
+        # return (
+        #     [self.hand_position[index]],
+        #     num_strings,
+        # )
         if self.hand_position[index].is_integer():
             return (
-                self.x_values[int(self.hand_position[index])],
+                [self.x_values[int(self.hand_position[index])]],
                 num_strings,
             )
         else:
+            # basically get the middle of the two bars in x_values
             return (
-                (self.hand_position[index] - 0.5 + self.hand_position[index] + 0.5) / 2,
+                [
+                    (
+                        self.x_values[int(self.hand_position[index] + 0.5)]
+                        + self.x_values[int(self.hand_position[index] - 0.5)]
+                    )
+                    / 2
+                ],
                 num_strings,
             )
 

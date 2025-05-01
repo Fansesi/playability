@@ -1,5 +1,5 @@
 from __future__ import annotations
-
+from typing import Optional, List
 
 class ErrorDist:
     def __init__(

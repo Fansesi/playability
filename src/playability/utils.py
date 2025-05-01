@@ -1,5 +1,4 @@
 from typing import List, Tuple, Dict
-from loguru import logger as lg
 
 
 def create_finger_positions(
